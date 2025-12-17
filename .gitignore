@@ -1,0 +1,20 @@
+# Python cache
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Database lokal
+*.db
+*.sqlite
+
+# Model & hasil training
+*.pt
+runs/
+datasets/
+
+# Environment & editor
+.env
+.vscode/
+
+# Arsip
+*.zip
