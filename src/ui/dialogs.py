@@ -410,6 +410,7 @@ class VideoThreadFallback(QThread):
     raw_frame_signal = pyqtSignal(np.ndarray)
     fps_signal = pyqtSignal(float)
     
+    # [PERBAIKAN] Mengembalikan parameter cam_index dan target_width
     def __init__(self, cam_index=0, target_width=640):
         super().__init__()
         self.idx = cam_index
@@ -421,65 +422,56 @@ class VideoThreadFallback(QThread):
     def run(self):
         if cv2 is None: return
         
-        # Setup backend kamera
+        # Setup backend kamera (DSHOW di Windows lebih stabil)
         backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
         cap = cv2.VideoCapture(self.idx, backend)
         
-        # Tambahkan timeout agar tidak hang saat mencoba connect
-        if not cap.isOpened():
-            self.msleep(500) # Tunggu sebentar sebelum coba lagi
-            cap.open(self.idx, backend)
-
         while self._run:
-            # Jika kamera putus, coba reconnect pelan-pelan (jangan spamming)
+            # Reconnect otomatis jika kamera terputus/ganti
             if not cap.isOpened():
-                self.msleep(1000) # Tunggu 1 detik sebelum reconnect
+                self.msleep(100)
                 cap.open(self.idx, backend)
                 continue
 
             try:
-                # Baca frame
+                # [PERBAIKAN] try-except untuk mencegah aplikasi force close
                 ret, frame = cap.read()
                 
-                if not ret:
-                    # Jika gagal baca frame, istirahat sejenak agar CPU tidak 100%
-                    self.msleep(100)
+                if not ret: 
+                    self.msleep(10)
                     continue
                 
-                # Hitung FPS (biar UI tau kalau kamera jalan)
+                # Hitung FPS
                 now = time.time()
                 if self._last is not None:
-                    # Hindari pembagian dengan nol
-                    diff = max(1e-6, now - self._last)
-                    inst = 1.0 / diff
+                    inst = 1.0 / max(1e-6, now - self._last)
                     self._ema = inst if self._ema == 0 else 0.1 * inst + 0.9 * self._ema
                     self.fps_signal.emit(float(self._ema))
                 self._last = now
                 
-                # Resize (Mencegah lag karena gambar terlalu besar)
+                # Resize gambar agar UI tidak lag
                 h, w = frame.shape[:2]
                 if w > self.tw: 
                     s = self.tw / w
                     frame = cv2.resize(frame, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
                 
-                # Emit frame ke AI (copy agar thread aman)
-                self.raw_frame_signal.emit(frame.copy())
+                # Kirim data frame mentah ke AI
+                self.raw_frame_signal.emit(frame)
                 
-                # Convert ke QImage untuk UI
+                # Kirim data gambar ke UI
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 h, w, ch = rgb.shape
                 qimg = QImage(rgb.data, w, h, w * ch, QImage.Format_RGB888).copy()
                 self.frame_signal.emit(qimg)
                 
-                # Beri jeda sangat kecil agar UI thread bisa bernafas
-                self.msleep(10) 
-                
             except cv2.error:
-                self.msleep(500) # Error OpenCV? Tunggu 0.5 detik
+                # Abaikan error internal OpenCV
+                self.msleep(10)
             except Exception as e:
-                self.msleep(500) # Error lain? Tunggu 0.5 detik
+                # Abaikan error umum lainnya
+                self.msleep(10)
 
-        # Release kamera saat thread berhenti
+        # Release kamera dengan aman saat stop
         try:
             if cap and cap.isOpened():
                 cap.release()
@@ -488,10 +480,7 @@ class VideoThreadFallback(QThread):
 
     def stop(self): 
         self._run = False
-        # Tunggu maksimal 1 detik agar tidak bikin aplikasi hang selamanya
-        self.wait(1000) 
-        if self.isRunning():
-            self.terminate() # Paksa berhenti jika masih bandel (opsi terakhir)
+        self.wait(500)
 
 # =========================================================================
 
