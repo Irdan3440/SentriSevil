@@ -18,3 +18,5 @@ datasets/
 
 # Arsip
 *.zip
+
+*.csv
