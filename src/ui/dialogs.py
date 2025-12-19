@@ -405,51 +405,93 @@ class ResourceThread(QThread):
 
 
 class VideoThreadFallback(QThread):
-
-    frame_signal = pyqtSignal(QImage); raw_frame_signal = pyqtSignal(np.ndarray); fps_signal = pyqtSignal(float)
-
+    # Definisi Sinyal
+    frame_signal = pyqtSignal(QImage)
+    raw_frame_signal = pyqtSignal(np.ndarray)
+    fps_signal = pyqtSignal(float)
+    
     def __init__(self, cam_index=0, target_width=640):
-
-        super().__init__(); self.idx = cam_index; self.tw = target_width; self._run = True; self.cap = None; self._last = None; self._ema = 0.0
+        super().__init__()
+        self.idx = cam_index
+        self.tw = target_width
+        self._run = True
+        self._last = None
+        self._ema = 0.0
 
     def run(self):
-
         if cv2 is None: return
-
-        self.cap = cv2.VideoCapture(self.idx, cv2.CAP_DSHOW if os.name=='nt' else cv2.CAP_ANY)
-
-        if not self.cap.isOpened(): return
+        
+        # Setup backend kamera
+        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+        cap = cv2.VideoCapture(self.idx, backend)
+        
+        # Tambahkan timeout agar tidak hang saat mencoba connect
+        if not cap.isOpened():
+            self.msleep(500) # Tunggu sebentar sebelum coba lagi
+            cap.open(self.idx, backend)
 
         while self._run:
+            # Jika kamera putus, coba reconnect pelan-pelan (jangan spamming)
+            if not cap.isOpened():
+                self.msleep(1000) # Tunggu 1 detik sebelum reconnect
+                cap.open(self.idx, backend)
+                continue
 
-            ok, frame = self.cap.read()
+            try:
+                # Baca frame
+                ret, frame = cap.read()
+                
+                if not ret:
+                    # Jika gagal baca frame, istirahat sejenak agar CPU tidak 100%
+                    self.msleep(100)
+                    continue
+                
+                # Hitung FPS (biar UI tau kalau kamera jalan)
+                now = time.time()
+                if self._last is not None:
+                    # Hindari pembagian dengan nol
+                    diff = max(1e-6, now - self._last)
+                    inst = 1.0 / diff
+                    self._ema = inst if self._ema == 0 else 0.1 * inst + 0.9 * self._ema
+                    self.fps_signal.emit(float(self._ema))
+                self._last = now
+                
+                # Resize (Mencegah lag karena gambar terlalu besar)
+                h, w = frame.shape[:2]
+                if w > self.tw: 
+                    s = self.tw / w
+                    frame = cv2.resize(frame, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
+                
+                # Emit frame ke AI (copy agar thread aman)
+                self.raw_frame_signal.emit(frame.copy())
+                
+                # Convert ke QImage untuk UI
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                h, w, ch = rgb.shape
+                qimg = QImage(rgb.data, w, h, w * ch, QImage.Format_RGB888).copy()
+                self.frame_signal.emit(qimg)
+                
+                # Beri jeda sangat kecil agar UI thread bisa bernafas
+                self.msleep(10) 
+                
+            except cv2.error:
+                self.msleep(500) # Error OpenCV? Tunggu 0.5 detik
+            except Exception as e:
+                self.msleep(500) # Error lain? Tunggu 0.5 detik
 
-            now = time.time()
+        # Release kamera saat thread berhenti
+        try:
+            if cap and cap.isOpened():
+                cap.release()
+        except: 
+            pass
 
-            if not ok or frame is None: self.msleep(10); continue
-
-            if self._last is not None:
-
-                inst = 1.0 / max(1e-6, now - self._last); self._ema = inst if self._ema == 0 else 0.1 * inst + 0.9 * self._ema; self.fps_signal.emit(float(self._ema))
-
-            self._last = now
-
-            h, w = frame.shape[:2]
-
-            if w > self.tw:
-
-                s = self.tw/w; frame = cv2.resize(frame, (int(w*s), int(h*s)), interpolation=cv2.INTER_AREA)
-
-            try: self.raw_frame_signal.emit(frame)
-
-            except: pass
-
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB); q = QImage(rgb.data, rgb.shape[1], rgb.shape[0], rgb.shape[1]*3, QImage.Format_RGB888).copy(); self.frame_signal.emit(q)
-
-        if self.cap: self.cap.release()
-
-    def stop(self): self._run = False; self.wait(500)
-
+    def stop(self): 
+        self._run = False
+        # Tunggu maksimal 1 detik agar tidak bikin aplikasi hang selamanya
+        self.wait(1000) 
+        if self.isRunning():
+            self.terminate() # Paksa berhenti jika masih bandel (opsi terakhir)
 
 # =========================================================================
 
@@ -1498,39 +1540,55 @@ class MeasureDialog(QtWidgets.QDialog):
    
 
     def _start_yolo(self):
+        """Memulai thread AI baru."""
+        # 1. Pastikan thread lama sudah dibersihkan
+        self._stop_yolo()
 
-        if not HAS_YOLO: self._status("YOLO tidak tersedia (Install ultralytics)."); return
+        if not HAS_YOLO:
+            self._status("Library YOLO tidak ditemukan.")
+            return
 
-        if self.yolo_thread:
-
-            try: self.yolo_thread.stop()
-
-            except: pass
-
+        self._status("Memuat Model AI...")
+        
+        # 2. Buat thread baru yang segar
+        try:
+            self.yolo_thread = YoloThread(MODEL_PATH)
+            
+            # 3. Sambungkan sinyal kembali
+            self.yolo_thread.result_signal.connect(self._on_skel_qimg)
+            self.yolo_thread.parts_signal.connect(self._on_parts)
+            self.yolo_thread.status_signal.connect(self._status)
+            
+            # 4. Jalankan
+            self.yolo_thread.start()
+            self._status("AI Berjalan")
+        except Exception as e:
             self.yolo_thread = None
-
-        self.yolo_thread = YoloThread(MODEL_PATH)
-
-        self.yolo_thread.result_signal.connect(self._on_skel_qimg)
-
-        self.yolo_thread.parts_signal.connect(self._on_parts)
-
-        self.yolo_thread.status_signal.connect(self._status)
-
-        self.yolo_thread.start()
+            self._status(f"Gagal Start AI: {e}")
 
 
     def _stop_yolo(self):
-
-        if self.yolo_thread:
-
-            try: self.yolo_thread.stop()
-
-            except: pass
-
+        """Menghentikan AI dengan aman tanpa membekukan aplikasi."""
+        if self.yolo_thread is not None:
+            # 1. PUTUSKAN KONEKSI SINYAL DULU
+            # Ini mencegah thread yang mau mati mengirim gambar ke UI (penyebab skeleton error)
+            try:
+                self.yolo_thread.result_signal.disconnect()
+                self.yolo_thread.parts_signal.disconnect()
+            except: 
+                pass
+            
+            # 2. Perintahkan berhenti (menggunakan timeout bawaan 500ms di class thread)
+            # Jangan gunakan self.yolo_thread.wait() manual disini agar tidak hang
+            self.yolo_thread.stop()
+            
+            # 3. Hapus referensi thread
             self.yolo_thread = None
-
-            self._status("YOLO dihentikan")
+            
+            # 4. Bersihkan tampilan layar
+            self.lbl_skel.clear()
+            self.lbl_skel.setText("AI Berhenti")
+            self._status("AI Dihentikan")
 
 
     @pyqtSlot(QImage)
@@ -1540,10 +1598,11 @@ class MeasureDialog(QtWidgets.QDialog):
    
 
     @pyqtSlot(np.ndarray)
-
     def _on_raw_bgr(self, bgr):
-
-        if self.yolo_thread: self.yolo_thread.push_frame(bgr)
+        # Cek sederhana: Hanya kirim frame jika thread AI ada
+        # Jangan pakai .isRunning() yang kompleks di sini untuk performa
+        if self.yolo_thread:
+            self.yolo_thread.push_frame(bgr)
 
 
     @pyqtSlot(QImage)
