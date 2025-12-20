@@ -410,7 +410,6 @@ class VideoThreadFallback(QThread):
     raw_frame_signal = pyqtSignal(np.ndarray)
     fps_signal = pyqtSignal(float)
     
-    # [PERBAIKAN] Mengembalikan parameter cam_index dan target_width
     def __init__(self, cam_index=0, target_width=640):
         super().__init__()
         self.idx = cam_index
@@ -422,23 +421,34 @@ class VideoThreadFallback(QThread):
     def run(self):
         if cv2 is None: return
         
-        # Setup backend kamera (DSHOW di Windows lebih stabil)
-        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+        # Gunakan CAP_ANY agar kompatibel (Windows/Linux) dan stabil
+        backend = cv2.CAP_ANY 
         cap = cv2.VideoCapture(self.idx, backend)
         
+        # [SETTING WIDE] Paksa resolusi HD 1280x720 agar tampilan luas (16:9)
+        # Ini mengatasi masalah gambar terlihat "di-zoom" atau terpotong
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        
+        # Batasi FPS hardware jika memungkinkan untuk mengurangi beban
+        cap.set(cv2.CAP_PROP_FPS, 30)
+
+        self.msleep(500) # Tunggu kamera inisialisasi
+        
         while self._run:
-            # Reconnect otomatis jika kamera terputus/ganti
             if not cap.isOpened():
-                self.msleep(100)
+                self.msleep(1000)
                 cap.open(self.idx, backend)
+                # Set ulang resolusi saat reconnect
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
                 continue
 
             try:
-                # [PERBAIKAN] try-except untuk mencegah aplikasi force close
                 ret, frame = cap.read()
                 
                 if not ret: 
-                    self.msleep(10)
+                    self.msleep(100)
                     continue
                 
                 # Hitung FPS
@@ -449,29 +459,31 @@ class VideoThreadFallback(QThread):
                     self.fps_signal.emit(float(self._ema))
                 self._last = now
                 
-                # Resize gambar agar UI tidak lag
+                # [RESIZE PROPOSIONAL]
+                # Frame asli 1280x720 akan di-resize ke lebar target (misal 640)
+                # Hasilnya menjadi 640x360 (tetap Wide 16:9), tidak gepeng/terpotong
                 h, w = frame.shape[:2]
                 if w > self.tw: 
                     s = self.tw / w
+                    # Gunakan INTER_AREA untuk hasil pengecilan yang lebih halus
                     frame = cv2.resize(frame, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
                 
-                # Kirim data frame mentah ke AI
+                # Emit data mentah ke AI
                 self.raw_frame_signal.emit(frame)
                 
-                # Kirim data gambar ke UI
+                # Convert ke RGB untuk UI
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 h, w, ch = rgb.shape
                 qimg = QImage(rgb.data, w, h, w * ch, QImage.Format_RGB888).copy()
                 self.frame_signal.emit(qimg)
                 
-            except cv2.error:
-                # Abaikan error internal OpenCV
-                self.msleep(10)
-            except Exception as e:
-                # Abaikan error umum lainnya
-                self.msleep(10)
+                # Jeda kecil agar CPU tidak 100%
+                self.msleep(15)
+                
+            except Exception:
+                self.msleep(100)
 
-        # Release kamera dengan aman saat stop
+        # Release kamera
         try:
             if cap and cap.isOpened():
                 cap.release()
@@ -480,7 +492,7 @@ class VideoThreadFallback(QThread):
 
     def stop(self): 
         self._run = False
-        self.wait(500)
+        self.wait(1000)
 
 # =========================================================================
 
