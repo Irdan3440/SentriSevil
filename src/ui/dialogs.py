@@ -1,293 +1,173 @@
 import os
-
 import cv2
-
 import numpy as np
-
 import time
-
 import math
-
 import json
-
 import psutil
-
 from collections import deque
-
 from datetime import datetime, date
-
-
 from PyQt5 import QtCore, QtWidgets
-
 from PyQt5.QtCore import Qt, QTimer, pyqtSlot, QDate, QThread, pyqtSignal
-
 from PyQt5.QtGui import QFont, QPixmap, QImage, QIcon
-
 from PyQt5.QtWidgets import (
-
     QDialog, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
-
     QFormLayout, QLineEdit, QDateEdit, QComboBox, QMessageBox,
-
     QFrame, QGridLayout, QSpinBox, QFileDialog, QApplication
-
 )
 
 
 # Import helper & config bawaan project Anda
-
 from ..utils import months_between, calc_age_months
-
 from ..config import APP_COPYRIGHT, MODEL_PATH
 
 
 # --- Import Library AI ---
-
 try:
-
     from ultralytics import YOLO
-
     HAS_YOLO = True
 
 except ImportError:
-
     HAS_YOLO = False
-
     YOLO = None
 
 
 try:
-
     import mediapipe as mp
 
 except ImportError:
-
     mp = None
 
-
 # ==========================================
-
 # KONFIGURASI AI & HELPER
-
 # ==========================================
-
-
 YOLO_IMGSZ = 640
-
-YOLO_MAX_DET = 15
-
-YOLO_CLASSES = None
-
-YOLO_MIN_INTERVAL_MS = 160.0
-
-UI_RENDER_FPS = 25
-
+YOLO_MAX_DET = 1
+YOLO_CLASSES = [0]
+YOLO_MIN_INTERVAL_MS = 250.0
+UI_RENDER_FPS = 20
 
 # --- HELPER SKELETON INDICES ---
-
 NOSE = 0
-
 LEFT_EYE = 2
-
 RIGHT_EYE = 5
-
 LEFT_EAR = 7
-
 RIGHT_EAR = 8
-
 LEFT_HIP = 23
-
 RIGHT_HIP = 24
-
 LEFT_KNEE = 25
-
 LEFT_ANKLE = 27
-
 LEFT_HEEL = 29
 
-
 # --- HELPER MATH FUNCTIONS ---
-
 def _to_pixel(lm, w, h):
-
     return (int(lm.x * w), int(lm.y * h), getattr(lm, "visibility", 1.0))
 
-
 def _dist(p1, p2):
-
     (x1, y1), (x2, y2) = p1[:2], p2[:2]
-
     return math.hypot(x1 - x2, y1 - y2)
 
-
 def _hip_center(px):
-
     lh, rh = px.get(LEFT_HIP), px.get(RIGHT_HIP)
-
     if lh and rh:
-
         return (int((lh[0] + rh[0]) / 2), int((lh[1] + rh[1]) / 2), min(lh[2], rh[2]))
-
     return lh or rh
 
-
 def _extract_px(landmarks, w, h):
-
     return {i: _to_pixel(lm, w, h) for i, lm in enumerate(landmarks)}
 
-
 def _draw_point(img, p, label, color=(0, 255, 0)):
-
     if p is None: return
-
     cv2.circle(img, p[:2], 5, color, -1)
-
     cv2.putText(img, label, (p[0] + 6, p[1] - 6),
-
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
 
-
 def _draw_link(img, p1, p2, color=(255, 255, 255)):
-
     if p1 is None or p2 is None: return
-
     cv2.line(img, p1[:2], p2[:2], color, 2)
 
-
 def _face_center_x(px):
-
     cand = []
-
     for idx in (NOSE, LEFT_EYE, RIGHT_EYE, LEFT_EAR, RIGHT_EAR):
-
         p = px.get(idx)
-
         if p is not None:
-
             vis = p[2] if len(p) > 2 else 1.0
-
             cand.append((p[0], max(0.0, float(vis))))
 
     if not cand:
-
         return None
 
     wsum = sum(w for _, w in cand)
 
     if wsum <= 1e-6:
-
         return int(sum(x for x, _ in cand) / len(cand))
 
     return int(sum(x*w for x, w in cand) / wsum)
 
 
 def _ray_intersect_bbox(origin, direction, bbox):
-
     ox, oy = float(origin[0]), float(origin[1])
-
     dx, dy = float(direction[0]), float(direction[1])
 
     if abs(dx) < 1e-9 and abs(dy) < 1e-9:
-
         return None
 
     x1, y1, x2, y2 = map(float, bbox)
-
     ts = []
 
     if abs(dx) > 1e-9:
-
         t = (x1 - ox)/dx; y = oy + t*dy
-
         if t >= 0 and y1-1e-6 <= y <= y2+1e-6: ts.append((t, x1, y))
-
         t = (x2 - ox)/dx; y = oy + t*dy
-
         if t >= 0 and y1-1e-6 <= y <= y2+1e-6: ts.append((t, x2, y))
 
     if abs(dy) > 1e-9:
-
         t = (y1 - oy)/dy; x = ox + t*dx
-
         if t >= 0 and x1-1e-6 <= x <= x2+1e-6: ts.append((t, x, y1))
-
         t = (y2 - oy)/dy; x = ox + t*dx
-
         if t >= 0 and x1-1e-6 <= x <= x2+1e-6: ts.append((t, x, y2))
 
     if not ts: return None
-
     t_min, xi, yi = min(ts, key=lambda a: a[0])
-
     return (int(round(xi)), int(round(yi)))
 
 
 def _compute_parts(px, head):
-
     nose = px.get(NOSE)
-
     hip  = _hip_center(px)
-
     l_hip   = px.get(LEFT_HIP)
-
     l_knee  = px.get(LEFT_KNEE)
-
     l_ankle = px.get(LEFT_ANKLE)
-
     l_heel  = px.get(LEFT_HEEL)
 
-
     if any(v is None for v in [head, nose, hip, l_hip, l_knee, l_ankle, l_heel]):
-
         return None, None
 
-
     h1 = _dist(head, nose)
-
     h2 = _dist(nose, hip)
-
     h3 = _dist(l_hip, l_knee)
-
     h4 = _dist(l_knee, l_ankle)
-
     h5 = _dist(l_ankle, l_heel)
-
     H  = h1 + h2 + h3 + h4 + h5
 
-
     return (
-
         {"h1": h1, "h2": h2, "h3": h3, "h4": h4, "h5": h5, "H": H},
-
         {"head": head, "nose": nose, "hip": hip,
-
          "l_hip": l_hip, "l_knee": l_knee, "l_ankle": l_ankle, "l_heel": l_heel}
-
     )
 
 
 # --- FUNGSI BANTUAN ICON ---
-
 def set_app_icon(window_obj):
-
     base_dir = os.path.dirname(os.path.abspath(__file__))
-
     cwd = os.getcwd()
-
     candidates = [
-
         os.path.join(base_dir, "..", "..", "src", "assets", "sentrisevil_logo.png"),
-
         os.path.join(base_dir, "..", "assets", "sentrisevil_logo.png"),
-
         os.path.join(cwd, "src", "assets", "sentrisevil_logo.png"),
-
         os.path.join(cwd, "assets", "sentrisevil_logo.png"),
-
         r"src\assets\sentrisevil_logo.png",
-
         r"SentriSevil\src\assets\sentrisevil_logo.png"
-
     ]
 
     for path in candidates:
