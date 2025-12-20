@@ -12,6 +12,22 @@
 
 ## 🛠️ Teknologi yang Digunakan
 
+## 🔬 Detail Teknis & Pustaka (Library)
+
+Aplikasi ini dibangun menggunakan **Python** (Kompatibel v3.10 & v3.11) dengan pustaka utama sebagai berikut:
+
+| Kategori              | Library (Modul)         | Fungsi dalam Aplikasi                                                                                        |
+| :-------------------- | :---------------------- | :----------------------------------------------------------------------------------------------------------- |
+| **GUI (Tampilan)**    | `PyQt5`                 | Membangun antarmuka modern (Jendela, Tombol, Tabel) yang responsif dan user-friendly.                        |
+| **Kamera & Citra**    | `opencv-python` (`cv2`) | Mengakses webcam, memproses frame video, dan menggambar visualisasi kerangka (_skeleton_) pada layar.        |
+| **Kecerdasan Buatan** | `ultralytics` (YOLO)    | Memuat model Deep Learning (`best.pt`) untuk mendeteksi keberadaan balita dalam video secara akurat.         |
+| **Pose Estimation**   | `mediapipe`             | Mendeteksi titik koordinat sendi tubuh (hidung, bahu, pinggul, lutut, kaki) untuk perhitungan panjang badan. |
+| **Hardware Serial**   | `pyserial`              | Membuka komunikasi data dengan mikrokontroler (Arduino/Wemos) untuk membaca sensor berat badan.              |
+| **Data Processing**   | `pandas`                | Membaca dan mengolah data tabel standar antropometri (file CSV) untuk penentuan Z-Score.                     |
+| **System Monitor**    | `psutil`                | Memantau kesehatan sistem (Suhu CPU, RAM) secara _real-time_ untuk mencegah kendala teknis.                  |
+
+---
+
 ### Perangkat Lunak (Software)
 
 - **Bahasa:** Python 3.10 atau 3.11
