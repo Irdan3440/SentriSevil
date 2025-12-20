@@ -31,7 +31,6 @@ except ImportError:
     HAS_YOLO = False
     YOLO = None
 
-
 try:
     import mediapipe as mp
 
