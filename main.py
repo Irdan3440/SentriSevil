@@ -16,7 +16,7 @@ def main():
     # 1. Pastikan Database & Tabel siap
     ensure_db()
     
-    # 2. Buka Koneksi Database
+    # 2. Buka Koneksi Databases
     con = get_connection()
     
     # 3. Setup Aplikasi Qt
