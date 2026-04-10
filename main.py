@@ -22,9 +22,37 @@ def main():
     # 3. Setup Aplikasi Qt
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+
+    # --- PERBAIKAN TAMPILAN UNTUK RASPBERRY PI ---
+    # Memaksa menggunakan style 'Fusion' yang lintas platform dan stabil
+    app.setStyle("Fusion")
+
+    # Memaksa warna elemen input agar teks selalu hitam di atas background putih
+    # Ini mengatasi masalah teks putih/transparan pada tema gelap Raspberry Pi
+    app.setStyleSheet("""
+        QWidget {
+            color: black;             /* Teks umum hitam */
+        }
+        QLineEdit, QComboBox, QSpinBox, QDateEdit, QDoubleSpinBox {
+            background-color: white;  /* Background input putih */
+            color: black;             /* Teks input hitam */
+            border: 1px solid #a0a0a0;
+            padding: 2px;
+        }
+        QLabel {
+            color: black;             /* Label teks hitam */
+        }
+        /* Memperbaiki tampilan menu dropdown yang kadang gelap */
+        QAbstractItemView {
+            background-color: white;
+            color: black;
+            selection-background-color: #0078d7;
+            selection-color: white;
+        }
+    """)
+    # ----------------------------------------------
     
     # Set Icon Aplikasi Global
-    # Pastikan file icon ada di: SentriSevil/src/assets/sentrisevil_logo.png
     if os.path.exists(ICON_PATH):
         app.setWindowIcon(QIcon(ICON_PATH))
     

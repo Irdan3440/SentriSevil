@@ -20,14 +20,42 @@ class VideoThreadFallback(QThread):
 
     def run(self):
         if cv2 is None: return
-        self.cap = cv2.VideoCapture(self.idx, cv2.CAP_DSHOW if os.name=='nt' else cv2.CAP_ANY)
+        
+        # 1. Gunakan backend V4L2 khusus untuk Raspberry Pi / Linux
+        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_V4L2
+        self.cap = cv2.VideoCapture(self.idx, backend)
+        
+        if self.cap.isOpened():
+            try:
+                self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+            except Exception:
+                pass
+            
+            # Meminta resolusi maksimal
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+
         while self._run and self.cap.isOpened():
             ok, frame = self.cap.read()
             if not ok: 
                 self.msleep(10); continue
             
-            # Resize logic here if needed
             h, w = frame.shape[:2]
+
+            # --- TAMBAHAN UNTUK CROP KE 16:9 (Menyamakan gaya Windows) ---
+            target_ratio = 16.0 / 9.0
+            current_ratio = w / float(h)
+            
+            # Jika kamera mengirim gambar yang lebih "kotak" dari 16:9 (misal 4:3)
+            if current_ratio < (target_ratio - 0.05):
+                new_h = int(w / target_ratio)
+                y_offset = (h - new_h) // 2
+                # Potong (crop) piksel bagian atas dan bawah secara simetris
+                frame = frame[y_offset:y_offset+new_h, :]
+                h = new_h  # Update tinggi baru untuk logika resize di bawahnya
+            # -------------------------------------------------------------
+            
+            # Resize logic (Menurunkan resolusi ke 640 agar FPS Raspberry Pi lancar)
             if w > self.tw:
                 s = self.tw/w
                 frame = cv2.resize(frame, (int(w*s), int(h*s)))
