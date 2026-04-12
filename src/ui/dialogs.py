@@ -248,12 +248,20 @@ class VideoThreadFallback(QThread):
 
     def run(self):
         if cv2 is None: return
-        backend = cv2.CAP_ANY 
+        
+        # 1. Gunakan backend V4L2 untuk Raspberry Pi
+        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_V4L2 
         cap = cv2.VideoCapture(self.idx, backend)
         
-        # Paksa resolusi tinggi agar wide
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        # 2. Paksa format MJPG terlebih dahulu
+        try:
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        except Exception:
+            pass
+            
+        # 3. Minta resolusi 1920x1080 (16:9 asli)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         cap.set(cv2.CAP_PROP_FPS, 30)
 
         self.msleep(500)
@@ -277,8 +285,20 @@ class VideoThreadFallback(QThread):
                     self.fps_signal.emit(float(self._ema))
                 self._last = now
                 
-                # Resize proposional
                 h, w = frame.shape[:2]
+
+                # --- POTONG (CROP) PAKSA KE RASIO 16:9 AGAR GAYA SAMA SEPERTI WINDOWS ---
+                target_ratio = 16.0 / 9.0
+                current_ratio = w / float(h)
+                
+                if current_ratio < (target_ratio - 0.05):
+                    new_h = int(w / target_ratio)
+                    y_offset = (h - new_h) // 2
+                    frame = frame[y_offset:y_offset+new_h, :]
+                    h = new_h  # Update tinggi baru
+                # -------------------------------------------------------------------------
+
+                # Resize proposional ke 640
                 if w > self.tw: 
                     s = self.tw / w
                     frame = cv2.resize(frame, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
