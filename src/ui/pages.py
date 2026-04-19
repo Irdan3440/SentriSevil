@@ -22,7 +22,7 @@ import numpy as np
 # Import widget dan dialog
 from .widgets import StatCard, GrowthCanvasWFL, GrowthCanvasHFA
 from .dialogs import BabyDialog, MeasureDialog, ManualMeasureDialog
-from ..utils import is_wasting_PB_BB, is_stunting_HFA, calc_age_months, months_between
+from ..utils import BabyClassifier, is_wasting_PB_BB, is_stunting_HFA, calc_age_months, months_between
 from ..config import APP_COPYRIGHT, APP_NAME, APP_VERSION, DEV_PROFILE, SUPV_PROFILE, LOGO_PATH, DB_FILE
 
 # --- Helper Style ---
@@ -303,18 +303,27 @@ class ProfilePage(QWidget):
         cur.execute("SELECT weight_kg, length_cm, ts, COALESCE(age_months,-1) FROM measure WHERE baby_id=? ORDER BY ts DESC", (bid,))
         rows = cur.fetchall()
         
+        # Inisialisasi BabyClassifier untuk mengambil status spesifik
+        clf = BabyClassifier()
+        
         self.tbl_hist.setRowCount(0)
         for i, (w, l, ts, age_m) in enumerate(rows, start=1):
-            status_list = []
-            if is_wasting_PB_BB(l, w, sex): status_list.append("Wasting")
             if age_m < 0:
                 try: 
                    d1 = datetime.datetime.fromisoformat(ts).date()
                    d0 = datetime.datetime.strptime(dob, "%Y-%m-%d").date()
                    age_m = months_between(d0, d1)
                 except: age_m = 0
-            if is_stunting_HFA(age_m, l, sex): status_list.append("Stunting")
-            status_str = ", ".join(status_list) if status_list else "Normal"
+            
+            # Memanggil status secara spesifik dari utils.py
+            stat_hfa = clf.classify_stunting(sex, age_m, l)
+            stat_wfl = clf.classify_wasting(sex, l, w)
+            
+            # Logika penggabungan teks status
+            if stat_hfa == "Normal" and stat_wfl == "Gizi Baik (Normal)":
+                status_str = "Normal"
+            else:
+                status_str = f"PB/U: {stat_hfa} | BB/PB: {stat_wfl}"
             
             r = self.tbl_hist.rowCount()
             self.tbl_hist.insertRow(r)
