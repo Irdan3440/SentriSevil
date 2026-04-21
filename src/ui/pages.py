@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QHBoxLayout,
                              QPushButton, QTableWidget, QTableWidgetItem, 
                              QHeaderView, QToolButton, QMessageBox, QFrame,
                              QAbstractItemView, QInputDialog, QFileDialog,
-                             QGroupBox, QFormLayout, QApplication)
+                             QGroupBox, QFormLayout, QApplication, QSizePolicy)
 from PyQt5.QtCore import Qt, pyqtSignal, QUrl, QSize
 from PyQt5.QtGui import QFont, QIcon, QTextDocument, QPixmap, QDesktopServices, QPainter, QBrush, QColor, QPen
 from PyQt5.QtPrintSupport import QPrinter
@@ -40,28 +40,39 @@ class DashboardPage(QWidget):
         super().__init__()
         self.con = con
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20); layout.setSpacing(20)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
         
-        cards = QHBoxLayout(); cards.setSpacing(15)
+        # 1. Kartu Statistik Atas
+        cards = QHBoxLayout()
+        cards.setSpacing(15)
         self.c_bayi = StatCard("Total Bayi", 0, "#2979ff", fallback_emoji="👶")
         self.c_stunt = StatCard("Total Stunting", 0, "#1b5e20", fallback_emoji="📉")
         self.c_wasting = StatCard("Total Wasting (PB/BB)", 0, "#0097a7", fallback_emoji="⚖️")
-        cards.addWidget(self.c_bayi); cards.addWidget(self.c_stunt); cards.addWidget(self.c_wasting)
+        cards.addWidget(self.c_bayi)
+        cards.addWidget(self.c_stunt)
+        cards.addWidget(self.c_wasting)
         layout.addLayout(cards)
         
         graph_frame = QFrame()
         graph_frame.setStyleSheet("background: white; border-radius: 10px; border: 1px solid #e0e0e0;")
+        graph_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
         v_graph = QVBoxLayout(graph_frame)
-        lbl_graph = QLabel("Data Bayi per Bulan"); lbl_graph.setAlignment(Qt.AlignCenter)
-        lbl_graph.setStyleSheet("font-weight: bold; font-size: 14px; color: #333; margin-top: 10px;")
+        lbl_graph = QLabel("Data Bayi Perbulan")
+        lbl_graph.setAlignment(Qt.AlignCenter)
+        lbl_graph.setStyleSheet("font-weight: bold; font-size: 15px; color: #333; margin-top: 10px; margin-bottom: 5px;")
         v_graph.addWidget(lbl_graph)
-        self.canvas = FigureCanvas(Figure(figsize=(5,3), tight_layout=True))
+
+        self.canvas = FigureCanvas(Figure(tight_layout=True))
+        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.ax = self.canvas.figure.add_subplot(111)
         v_graph.addWidget(self.canvas)
-        layout.addWidget(graph_frame); layout.addStretch() 
+        layout.addWidget(graph_frame)       
         self.refresh()
         
     def refresh(self):
+        # 1. Hitung total bayi terdaftar
         cur = self.con.cursor()
         try:
             cur.execute("SELECT id, dob, sex FROM baby")
@@ -70,6 +81,7 @@ class DashboardPage(QWidget):
         except: total_bayi = 0; babies = []
         self.c_bayi.setValue(total_bayi)
 
+        # 2. Hitung total stunting & wasting
         total_stunting = 0; total_wasting = 0
         for (bid, dob_str, sex) in babies:
             cur.execute("SELECT length_cm, weight_kg FROM measure WHERE baby_id=? ORDER BY ts DESC LIMIT 1", (bid,))
@@ -83,15 +95,51 @@ class DashboardPage(QWidget):
                 if is_stunting_HFA(age_m, length_cm, sex): total_stunting += 1
                 if is_wasting_PB_BB(length_cm, weight_kg, sex): total_wasting += 1
 
-        self.c_stunt.setValue(total_stunting); self.c_wasting.setValue(total_wasting)
-        counts = [0]*12; curr_year = datetime.datetime.now().year
-        for (_, dob_str, _) in babies:
-            try:
-                d = datetime.datetime.strptime(dob_str, "%Y-%m-%d")
-                if d.year == curr_year: counts[d.month-1] += 1
-            except: pass
-        self.ax.clear(); self.ax.set_title(f"Kelahiran Bayi Tahun {curr_year}")
-        self.ax.bar(["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"], counts)
+        self.c_stunt.setValue(total_stunting)
+        self.c_wasting.setValue(total_wasting)
+        
+        # =========================================================
+        # 3. LOGIKA BARU GRAFIK: TOTAL INDIVIDU BAYI YANG BERKUNJUNG
+        # =========================================================
+        counts = [0] * 12
+        curr_year = datetime.datetime.now().year
+        
+        # Dictionary untuk menyimpan daftar baby_id unik yang berkunjung tiap bulan
+        # Format: { 1: set(), 2: set(), ..., 12: set() }
+        monthly_visitors = {month: set() for month in range(1, 13)}
+        
+        try:
+            # Ambil riwayat tanggal DAN ID bayi
+            cur.execute("SELECT ts, baby_id FROM measure")
+            for ts, baby_id in cur.fetchall():
+                try:
+                    # Ambil bagian tanggal
+                    ts_date = str(ts).split(' ')[0]
+                    d = datetime.datetime.strptime(ts_date, "%Y-%m-%d")
+                    
+                    # Jika tahunnya sesuai, masukkan ID Bayi ke dalam set bulan tersebut
+                    if d.year == curr_year: 
+                        monthly_visitors[d.month].add(baby_id)
+                except: 
+                    pass
+        except: 
+            pass
+
+        # Hitung panjang set (jumlah ID unik) untuk setiap bulan
+        for month in range(1, 13):
+            counts[month - 1] = len(monthly_visitors[month])
+
+        self.ax.clear()
+        self.ax.set_title(f"Grafik Kunjungan Bayi Tahun {curr_year}")
+        
+        bars = self.ax.bar(["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"], counts, color="#2979ff")
+        
+        # Tampilkan angka
+        try:
+            self.ax.bar_label(bars, padding=3)
+        except AttributeError:
+            pass 
+            
         self.canvas.draw()
 
 # ================= DATA PAGE =================
@@ -208,6 +256,7 @@ class ProfilePage(QWidget):
         form.setLabelAlignment(Qt.AlignLeft)
         form.setContentsMargins(12, 12, 12, 12)
         
+        # Identitas (Group Box kiri atas)
         self.f_name   = QLabel("-"); self.f_sex    = QLabel("-")
         self.f_age    = QLabel("-"); self.f_parent = QLabel("-")
         self.f_dob    = QLabel("-")
@@ -220,20 +269,48 @@ class ProfilePage(QWidget):
         form.addRow("Umur",           self.f_age)
         form.addRow("Orangtua",       self.f_parent)
         form.addRow("Tanggal Lahir",  self.f_dob)
-        
+                
         self.gbHist = QGroupBox("Riwayat")
         self.gbHist.setStyleSheet("QGroupBox{font-weight:600; background:white; border:1px solid #ddd; border-radius:8px; margin-top:8px;} QGroupBox::title{subcontrol-origin: margin; left:10px; padding: 0 3px;}")
         vHist = QVBoxLayout(self.gbHist)
         vHist.setContentsMargins(0, 10, 0, 0)
         
-        self.tbl_hist = QTableWidget(0, 5)
-        self.tbl_hist.setHorizontalHeaderLabels(["No", "Berat (kg)", "Panjang (cm)", "Status", "Tanggal"])
-        self.tbl_hist.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_hist = QTableWidget(0, 7)
+        self.tbl_hist.setHorizontalHeaderLabels(["No", "Berat (kg)", "Panjang (cm)", "Z PB/U", "Z BB/PB", "Status", "Tanggal"])
+        
+        # --- PERBAIKAN LEBAR KOLOM (AGAR STATUS BISA TERBACA) ---
+        header = self.tbl_hist.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents) # Kolom No
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents) # Kolom Berat
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents) # Kolom Panjang
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents) # Kolom Z PB/U
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents) # Kolom Z BB/PB
+        header.setSectionResizeMode(5, QHeaderView.Stretch)          # Kolom Status (Otomatis mengisi sisa ruang)
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents) # Kolom Tanggal
+        
         self.tbl_hist.verticalHeader().setVisible(False)
+        self.tbl_hist.setWordWrap(True) # Mengizinkan teks panjang turun ke baris bawah
         self.tbl_hist.setFrameShape(QFrame.NoFrame)
+        
+        # --- PERBAIKAN STYLING (PADDING & FONT) ---
         self.tbl_hist.setStyleSheet("""
-            QTableWidget { background: transparent; selection-background-color: #e3f2fd; selection-color: black; }
-            QHeaderView::section { background: #f8fafc; border: none; border-bottom: 1px solid #e2e8f0; font-weight: bold; padding: 4px; }
+            QTableWidget { 
+                background: transparent; 
+                selection-background-color: #e3f2fd; 
+                selection-color: black;
+                font-size: 12px;
+            }
+            QTableWidget::item { 
+                padding: 6px; 
+            }
+            QHeaderView::section { 
+                background: #f8fafc; 
+                border: none; 
+                border-bottom: 1px solid #e2e8f0; 
+                font-weight: bold; 
+                padding: 6px;
+                font-size: 12px;
+            }
         """)
         vHist.addWidget(self.tbl_hist)
 
@@ -303,10 +380,9 @@ class ProfilePage(QWidget):
         cur.execute("SELECT weight_kg, length_cm, ts, COALESCE(age_months,-1) FROM measure WHERE baby_id=? ORDER BY ts DESC", (bid,))
         rows = cur.fetchall()
         
-        # Inisialisasi BabyClassifier untuk mengambil status spesifik
         clf = BabyClassifier()
-        
         self.tbl_hist.setRowCount(0)
+        
         for i, (w, l, ts, age_m) in enumerate(rows, start=1):
             if age_m < 0:
                 try: 
@@ -315,24 +391,39 @@ class ProfilePage(QWidget):
                    age_m = months_between(d0, d1)
                 except: age_m = 0
             
-            # Memanggil status secara spesifik dari utils.py
+            # Hitung Status dan Z-Score
             stat_hfa = clf.classify_stunting(sex, age_m, l)
             stat_wfl = clf.classify_wasting(sex, l, w)
+            status_str = "Normal" if (stat_hfa == "Normal" and stat_wfl == "Gizi Baik (Normal)") else f"{stat_hfa}, {stat_wfl}"
             
-            # Logika penggabungan teks status
-            if stat_hfa == "Normal" and stat_wfl == "Gizi Baik (Normal)":
-                status_str = "Normal"
-            else:
-                status_str = f"PB/U: {stat_hfa} | BB/PB: {stat_wfl}"
+            try:
+                z_pbu, z_bbpb = clf.get_numeric_z_scores(sex, age_m, l, w)
+            except AttributeError:
+                z_pbu, z_bbpb = 0.0, 0.0
             
+            # --- PENYUSUNAN DATA TABEL ---
             r = self.tbl_hist.rowCount()
             self.tbl_hist.insertRow(r)
-            self.tbl_hist.setItem(r, 0, QTableWidgetItem(str(i)))
-            self.tbl_hist.setItem(r, 1, QTableWidgetItem(f"{w:.2f}"))
-            self.tbl_hist.setItem(r, 2, QTableWidgetItem(f"{l:.1f}"))
-            self.tbl_hist.setItem(r, 3, QTableWidgetItem(status_str))
-            self.tbl_hist.setItem(r, 4, QTableWidgetItem(str(ts)))
+            
+            # List data untuk kolom: No, Berat, Panjang, Z PB/U, Z BB/PB, Status, Tanggal
+            data_row = [
+                str(i), 
+                f"{w:.2f}", 
+                f"{l:.1f}", 
+                f"{z_pbu:.2f} SD", 
+                f"{z_bbpb:.2f} SD", 
+                status_str, 
+                str(ts)
+            ]
+            
+            for col_idx, text in enumerate(data_row):
+                item = QTableWidgetItem(text)
+                # PERBAIKAN: Membuat teks menjadi RATA TENGAH
+                item.setTextAlignment(Qt.AlignCenter) 
+                self.tbl_hist.setItem(r, col_idx, item)
 
+        self.tbl_hist.resizeRowsToContents()
+        
         cur.execute("SELECT length_cm, weight_kg, ts FROM measure WHERE baby_id=? ORDER BY ts", (bid,))
         pts = cur.fetchall()
         self.canvas_wfl.plot(sex, pts)
@@ -349,7 +440,128 @@ class ProfilePage(QWidget):
         if dlg.exec_(): self._load_data()
 
     def print_card(self):
-        QMessageBox.information(self, "Info", "Fitur cetak kartu profil belum diimplementasikan di versi modular ini.")
+        if not self.current_baby: return
+        # Ambil data identitas dasar
+        bid, name, parent, dob, sex_code = self.current_baby
+        
+        # Mapping Jenis Kelamin
+        sex_full = "Laki-Laki" if sex_code == "L" else "Perempuan"
+        
+        # Dialog simpan file
+        path, _ = QFileDialog.getSaveFileName(self, "Simpan PDF Kartu Profil", f"Kartu_{name}.pdf", "PDF (*.pdf)")
+        if not path: return
+        
+        # Inisialisasi Printer
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setOutputFormat(QPrinter.PdfFormat)
+        printer.setOutputFileName(path)
+        
+        # Hitung Umur Saat Ini
+        try:
+            d_dob = datetime.datetime.strptime(dob, "%Y-%m-%d").date()
+            age_now = f"{calc_age_months(d_dob)} bulan"
+        except: age_now = "-"
+        
+        # Ambil Data Riwayat dari Database
+        cur = self.con.cursor()
+        cur.execute("SELECT weight_kg, length_cm, ts, COALESCE(age_months,-1) FROM measure WHERE baby_id=? ORDER BY ts DESC", (bid,))
+        rows = cur.fetchall()
+        
+        clf = BabyClassifier()
+        
+        # --- MENGGUNAKAN HTML KLASIK AGAR COCOK DENGAN QTEXTDOCUMENT ---
+        html = f"""
+        <h1 align="center" style="color: #2979ff;">SENTRISEVIL</h1>
+        <h3 align="center" style="color: #64748b;">Kartu Pemantauan Tumbuh Kembang Anak (Antropometri)</h3>
+        <hr>
+        <br>
+        
+        <table width="100%" cellpadding="5" border="0">
+            <tr>
+                <td width="25%"><b>Nama Bayi</b></td><td width="75%">: {name}</td>
+            </tr>
+            <tr>
+                <td><b>Jenis Kelamin</b></td><td>: {sex_full}</td>
+            </tr>
+            <tr>
+                <td><b>Tanggal Lahir</b></td><td>: {dob}</td>
+            </tr>
+            <tr>
+                <td><b>Nama Orangtua</b></td><td>: {parent}</td>
+            </tr>
+            <tr>
+                <td><b>Umur (Saat Ini)</b></td><td>: {age_now}</td>
+            </tr>
+        </table>
+        
+        <br>
+        <h2>Riwayat Pengukuran</h2>
+        <table border="1" cellspacing="0" cellpadding="6" width="100%">
+            <tr bgcolor="#f1f5f9">
+                <th width="5%">No</th>
+                <th width="15%">Tanggal</th>
+                <th width="10%">Umur</th>
+                <th width="10%">Berat</th>
+                <th width="10%">Panjang</th>
+                <th width="15%">Z PB/U</th>
+                <th width="15%">Z BB/PB</th>
+                <th width="20%">Status Akhir</th>
+            </tr>
+        """
+        
+        for i, (w, l, ts, age_m) in enumerate(rows, start=1):
+            if age_m < 0:
+                try: 
+                    d1 = datetime.datetime.fromisoformat(ts).date()
+                    d0 = datetime.datetime.strptime(dob, "%Y-%m-%d").date()
+                    age_m = months_between(d0, d1)
+                except: age_m = 0
+            
+            # Ambil klasifikasi & Z-Score
+            stat_hfa = clf.classify_stunting(sex_full, age_m, l)
+            stat_wfl = clf.classify_wasting(sex_full, l, w)
+            
+            if stat_hfa == "Normal" and stat_wfl == "Gizi Baik (Normal)":
+                status_str = "Normal"
+            else:
+                status_str = f"PB/U: {stat_hfa}<br>BB/PB: {stat_wfl}"
+            
+            try:
+                z_pbu, z_bbpb = clf.get_numeric_z_scores(sex_full, age_m, l, w)
+                z_pbu_str = f"{z_pbu:.2f} SD"
+                z_bbpb_str = f"{z_bbpb:.2f} SD"
+            except:
+                z_pbu_str = "0.00 SD"; z_bbpb_str = "0.00 SD"
+                
+            # Masukkan data ke baris tabel (Selalu rata tengah)
+            html += f"""
+            <tr>
+                <td align="center">{i}</td>
+                <td align="center">{str(ts).split(' ')[0]}</td>
+                <td align="center">{age_m} Bln</td>
+                <td align="center">{w:.2f} kg</td>
+                <td align="center">{l:.1f} cm</td>
+                <td align="center">{z_pbu_str}</td>
+                <td align="center">{z_bbpb_str}</td>
+                <td align="center">{status_str}</td>
+            </tr>
+            """
+            
+        html += f"""
+        </table>
+        <br><br><br>
+        <p align="right" style="color: #64748b;">
+            <i>Dokumen ini dihasilkan secara otomatis oleh Sistem SentriSevil<br>
+            Waktu Cetak: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</i>
+        </p>
+        """
+        
+        # Render HTML ke PDF
+        doc = QTextDocument()
+        doc.setHtml(html)
+        doc.print_(printer)
+        
+        QMessageBox.information(self, "Berhasil", f"Kartu Profil {name} telah berhasil dicetak ke:\n{path}")
 
 # ================= ABOUT PAGE (CLEANED) =================
 class AboutPage(QWidget):

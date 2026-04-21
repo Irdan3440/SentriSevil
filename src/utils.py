@@ -66,7 +66,33 @@ class BabyClassifier:
         elif row['plus_2_sd'] < val <= row['plus_3_sd']: return "Gizi Lebih (Overweight)"
         elif val > row['plus_3_sd']: return "Obesitas"
         return "Unknown"
-
+    
+    def get_numeric_z_scores(self, gender, age_months, length_cm, weight_kg):
+        z_pbu = 0.0
+        z_bbpb = 0.0
+        
+        # Hitung Z-Score PB/U
+        df_pbu = self._get_table(gender, 'PBU')
+        if df_pbu is not None:
+            row = df_pbu[df_pbu['umur_bulan'] == age_months]
+            if not row.empty:
+                r = row.iloc[0]
+                median = r['median']
+                nsbr = (median - r['minus_1_sd']) if float(length_cm) < median else (r['plus_1_sd'] - median)
+                z_pbu = (float(length_cm) - median) / nsbr
+        
+        # Hitung Z-Score BB/PB
+        df_bbpb = self._get_table(gender, 'BBPB')
+        if df_bbpb is not None:
+            rounded_l = round(float(length_cm) * 2) / 2
+            row = df_bbpb[df_bbpb['panjang_badan_cm'] == rounded_l]
+            if not row.empty:
+                r = row.iloc[0]
+                median = r['median']
+                nsbr = (median - r['minus_1_sd']) if float(weight_kg) < median else (r['plus_1_sd'] - median)
+                z_bbpb = (float(weight_kg) - median) / nsbr
+        
+        return z_pbu, z_bbpb
 # ==========================================
 # 3. FUNGSI LEGACY (Wrapper untuk Pages & Widgets)
 # ==========================================
