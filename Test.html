@@ -1,0 +1,795 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SulaHaring - Mental Health Monitoring</title>
+    <!-- Import Font: Nunito untuk UI, Playfair Display untuk Logo -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Playfair+Display:ital,wght@1,400;1,700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* --- 1. DESIGN SYSTEM --- */
+      :root {
+        /* Palet Warna Sesuai Logo */
+        --gradient-logo: linear-gradient(135deg, #c084fc 0%, #60a5fa 100%);
+        --accent-teal: #2dd4bf;
+        --accent-check: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
+
+        --bg-body: #f3f4f6;
+        --bg-sidebar: #ffffff;
+
+        --text-main: #374151;
+        --text-logo: #3b82f6; /* Biru Logo SulaHaring */
+
+        --card-radius: 24px;
+        --shadow-soft: 0 10px 30px -5px rgba(0, 0, 0, 0.05);
+
+        /* Status Indicators */
+        --safe: #34d399;
+        --warn: #fbbf24;
+        --danger: #f87171;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Nunito", sans-serif;
+        background-color: var(--bg-body);
+        color: var(--text-main);
+        height: 100vh;
+        display: flex;
+        overflow: hidden;
+      }
+
+      /* --- 2. SIDEBAR NAVIGATION --- */
+      .sidebar {
+        width: 290px;
+        background: var(--bg-sidebar);
+        padding: 2rem;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid #e5e7eb;
+        z-index: 10;
+      }
+
+      .logo-area {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-bottom: 2.5rem;
+        text-align: center;
+      }
+
+      .logo-text {
+        font-family: "Playfair Display", serif;
+        font-style: italic;
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: #4285f4; /* Warna Biru Text Logo */
+        margin-top: 8px;
+        letter-spacing: -0.5px;
+      }
+
+      /* Navigasi */
+      .nav-menu {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .nav-item {
+        padding: 14px 20px;
+        border-radius: 16px;
+        cursor: pointer;
+        transition: all 0.3s;
+        color: #6b7280;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        font-size: 1rem;
+      }
+
+      .nav-item:hover {
+        background-color: #eff6ff;
+        color: #3b82f6;
+      }
+
+      .nav-item.active {
+        background: linear-gradient(90deg, #818cf8 0%, #60a5fa 100%);
+        color: white;
+        box-shadow: 0 4px 12px rgba(96, 165, 250, 0.3);
+      }
+
+      /* --- 3. MAIN CONTENT --- */
+      .main-content {
+        flex: 1;
+        padding: 2rem 3rem;
+        overflow-y: auto;
+        position: relative;
+      }
+
+      .page-section {
+        display: none;
+        animation: fadeIn 0.4s ease-out;
+      }
+      .page-section.active {
+        display: block;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+      }
+      .header h1 {
+        font-size: 1.8rem;
+        font-weight: 800;
+        color: #1f2937;
+      }
+
+      /* Dashboard Cards */
+      .dashboard-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 24px;
+      }
+
+      .card {
+        background: white;
+        border-radius: var(--card-radius);
+        padding: 1.5rem;
+        box-shadow: var(--shadow-soft);
+        border: 1px solid white;
+      }
+
+      .mental-card {
+        background: linear-gradient(120deg, #ffffff 0%, #f0fdfa 100%);
+        border: 1px solid #ccfbf1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: relative;
+        overflow: hidden;
+      }
+      .mental-card::after {
+        content: "✔";
+        position: absolute;
+        right: -20px;
+        bottom: -40px;
+        font-size: 12rem;
+        color: var(--accent-teal);
+        opacity: 0.08;
+      }
+
+      /* Grafik */
+      .chart-visual {
+        height: 200px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-around;
+        gap: 8px;
+        margin-top: 20px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .bar {
+        width: 100%;
+        border-radius: 8px 8px 0 0;
+        background: linear-gradient(to top, #a78bfa, #818cf8);
+        transition: height 0.5s ease;
+      }
+      .bar:hover {
+        opacity: 0.8;
+      }
+      .bar[data-status="stress"] {
+        background: linear-gradient(to top, #fca5a5, #f87171);
+      }
+
+      /* Widget Kanan */
+      .todo-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border-radius: 12px;
+        margin-bottom: 8px;
+        cursor: pointer;
+        transition: 0.2s;
+        background: #f9fafb;
+      }
+      .todo-item:hover {
+        background: #eff6ff;
+      }
+      .checkbox {
+        width: 24px;
+        height: 24px;
+        border-radius: 8px;
+        border: 2px solid #d1d5db;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: 0.2s;
+        background: white;
+      }
+      .checkbox.checked {
+        background: var(--accent-teal);
+        border-color: var(--accent-teal);
+        color: white;
+      }
+
+      .sos-btn {
+        width: 100%;
+        padding: 1rem;
+        border-radius: 16px;
+        border: none;
+        background: #fef2f2;
+        color: #ef4444;
+        font-weight: 800;
+        cursor: pointer;
+        border: 2px solid #fecaca;
+        margin-top: auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: 0.2s;
+      }
+      .sos-btn:hover {
+        background: #fee2e2;
+        transform: translateY(-2px);
+      }
+
+      /* --- Responsive Logo SVG --- */
+      .logo-svg {
+        width: 100px;
+        height: auto;
+        filter: drop-shadow(0 4px 6px rgba(124, 58, 237, 0.2));
+      }
+    </style>
+  </head>
+  <body>
+    <!-- SIDEBAR -->
+    <nav class="sidebar">
+      <div class="logo-area">
+        <!-- LOGO SVG EMBEDDED (Tidak butuh file gambar eksternal) -->
+        <svg
+          class="logo-svg"
+          viewBox="0 0 200 200"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <linearGradient id="heartGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" style="stop-color: #c084fc; stop-opacity: 1" />
+              <stop
+                offset="100%"
+                style="stop-color: #3b82f6; stop-opacity: 1"
+              />
+            </linearGradient>
+            <linearGradient id="checkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" style="stop-color: #5eead4; stop-opacity: 1" />
+              <stop
+                offset="100%"
+                style="stop-color: #0d9488; stop-opacity: 1"
+              />
+            </linearGradient>
+          </defs>
+
+          <!-- Heart Shape -->
+          <path
+            d="M100,180 C20,100 20,40 100,40 C180,40 180,100 100,180"
+            fill="url(#heartGrad)"
+          />
+          <circle
+            cx="50"
+            cy="50"
+            r="40"
+            fill="url(#heartGrad)"
+            opacity="0.5"
+            transform="translate(20,20)"
+          />
+          <circle
+            cx="150"
+            cy="50"
+            r="40"
+            fill="url(#heartGrad)"
+            opacity="0.5"
+            transform="translate(-20,20)"
+          />
+
+          <!-- Brain Outline (Simplified) -->
+          <path
+            d="M70,80 Q70,60 90,60 Q95,60 100,70 Q105,60 110,60 Q130,60 130,80 Q130,100 110,110 Q100,115 90,110 Q70,100 70,80"
+            fill="none"
+            stroke="white"
+            stroke-width="6"
+            stroke-linecap="round"
+          />
+          <path
+            d="M100,70 V110"
+            stroke="white"
+            stroke-width="4"
+            stroke-linecap="round"
+          />
+
+          <!-- Checkmark Badge -->
+          <circle cx="150" cy="140" r="35" fill="white" />
+          <circle cx="150" cy="140" r="30" fill="url(#checkGrad)" />
+          <path
+            d="M135,140 L145,150 L165,130"
+            fill="none"
+            stroke="white"
+            stroke-width="6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+
+          <!-- Sparkles -->
+          <path d="M40,70 L45,60 L50,70 L45,80 Z" fill="#FDE047" />
+          <path d="M160,60 L165,50 L170,60 L165,70 Z" fill="#FDE047" />
+        </svg>
+
+        <div class="logo-text">SulaHaring</div>
+      </div>
+
+      <ul class="nav-menu">
+        <li class="nav-item active" onclick="showPage('dashboard', this)">
+          <span>🏠</span> Dashboard
+        </li>
+        <li class="nav-item" onclick="showPage('diagnosis', this)">
+          <span>📝</span> Diagnosis Mandiri
+        </li>
+        <li class="nav-item" onclick="showPage('admin', this)">
+          <span>👨‍⚕️</span> Monitoring (Admin)
+        </li>
+        <li
+          class="nav-item"
+          style="margin-top: auto; color: #ef4444"
+          onclick="alert('Anda telah logout.')"
+        >
+          <span>🚪</span> Logout
+        </li>
+      </ul>
+    </nav>
+
+    <!-- CONTENT -->
+    <main class="main-content">
+      <!-- DASHBOARD -->
+      <div id="dashboard" class="page-section active">
+        <header class="header">
+          <div>
+            <h1>Halo, Mahasiswa! 👋</h1>
+            <p style="color: #6b7280">Selasa, 17 Februari 2026</p>
+          </div>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              background: white;
+              padding: 8px 20px;
+              border-radius: 50px;
+              box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            "
+          >
+            <div
+              style="
+                width: 10px;
+                height: 10px;
+                background: var(--safe);
+                border-radius: 50%;
+                animation: pulse 1.5s infinite;
+              "
+            ></div>
+            <span style="font-size: 0.9rem; font-weight: 700; color: #059669"
+              >SulaWatch Aktif</span
+            >
+          </div>
+        </header>
+
+        <div class="dashboard-grid">
+          <!-- Kiri -->
+          <div style="display: flex; flex-direction: column; gap: 24px">
+            <!-- Status Card -->
+            <div class="card mental-card">
+              <div>
+                <h3
+                  style="
+                    color: #6b7280;
+                    font-size: 0.85rem;
+                    letter-spacing: 1px;
+                    font-weight: 700;
+                  "
+                >
+                  STATUS MENTAL
+                </h3>
+                <h2
+                  style="
+                    font-size: 2.2rem;
+                    font-weight: 800;
+                    color: #059669;
+                    margin: 5px 0;
+                  "
+                >
+                  Stabil (85)
+                </h2>
+                <p style="font-size: 0.95rem; color: #4b5563">
+                  Tidak terdeteksi anomali stres berat.
+                </p>
+              </div>
+              <div style="font-size: 3.5rem">😊</div>
+            </div>
+
+            <!-- Grafik -->
+            <div class="card">
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                "
+              >
+                <h3 style="font-size: 1.1rem; font-weight: 700">
+                  Grafik Detak Jantung
+                </h3>
+                <span
+                  style="
+                    font-size: 0.8rem;
+                    background: #eef2ff;
+                    color: #4f46e5;
+                    padding: 4px 10px;
+                    border-radius: 8px;
+                  "
+                  >Live</span
+                >
+              </div>
+              <div class="chart-visual">
+                <div class="bar" style="height: 40%"></div>
+                <div class="bar" style="height: 50%"></div>
+                <div
+                  class="bar"
+                  style="
+                    height: 75%;
+                    background: linear-gradient(to top, #fbd38d, #f59e0b);
+                  "
+                  title="Stres Ringan"
+                ></div>
+                <div class="bar" style="height: 45%"></div>
+                <div class="bar" style="height: 55%"></div>
+                <div class="bar" style="height: 40%"></div>
+                <div class="bar" style="height: 48%"></div>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  font-size: 0.8rem;
+                  color: gray;
+                  margin-top: 5px;
+                "
+              >
+                <span>08:00</span><span>10:00</span><span>12:00</span
+                ><span>14:00</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Kanan -->
+          <div style="display: flex; flex-direction: column; gap: 24px">
+            <!-- Biometrik -->
+            <div
+              class="card"
+              style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px"
+            >
+              <div
+                style="
+                  text-align: center;
+                  padding: 15px;
+                  background: #f3f4f6;
+                  border-radius: 16px;
+                "
+              >
+                <div style="font-size: 1.8rem">❤️</div>
+                <div
+                  style="font-weight: 800; font-size: 1.4rem; color: #1f2937"
+                >
+                  78
+                </div>
+                <div style="font-size: 0.8rem; color: #6b7280">BPM</div>
+              </div>
+              <div
+                style="
+                  text-align: center;
+                  padding: 15px;
+                  background: #f3f4f6;
+                  border-radius: 16px;
+                "
+              >
+                <div style="font-size: 1.8rem">💧</div>
+                <div
+                  style="font-weight: 800; font-size: 1.4rem; color: #1f2937"
+                >
+                  98%
+                </div>
+                <div style="font-size: 0.8rem; color: #6b7280">SpO2</div>
+              </div>
+            </div>
+
+            <!-- To Do -->
+            <div class="card">
+              <h3
+                style="font-size: 1.1rem; font-weight: 700; margin-bottom: 15px"
+              >
+                Jadwal Harian
+              </h3>
+              <div class="todo-item" onclick="toggleCheck(this)">
+                <div class="checkbox"></div>
+                <div
+                  style="
+                    font-size: 0.95rem;
+                    font-weight: 600;
+                    color: #374151;
+                    margin-left: 10px;
+                  "
+                >
+                  Minum Obat (08:00)
+                </div>
+              </div>
+              <div class="todo-item" onclick="toggleCheck(this)">
+                <div class="checkbox"></div>
+                <div
+                  style="
+                    font-size: 0.95rem;
+                    font-weight: 600;
+                    color: #374151;
+                    margin-left: 10px;
+                  "
+                >
+                  Latihan Napas
+                </div>
+              </div>
+            </div>
+
+            <!-- SOS -->
+            <button
+              class="sos-btn"
+              onclick="alert('Sinyal Darurat Dikirim ke Konselor!')"
+            >
+              ⚠️ SOS DARURAT
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- DIAGNOSIS -->
+      <div id="diagnosis" class="page-section">
+        <header class="header" style="justify-content: center">
+          <h1>Diagnosis Mandiri (BDI-II)</h1>
+        </header>
+        <div
+          class="card"
+          style="max-width: 600px; margin: 0 auto; text-align: center"
+        >
+          <div
+            style="
+              background: #f3f4f6;
+              height: 10px;
+              border-radius: 10px;
+              margin-bottom: 30px;
+              overflow: hidden;
+            "
+          >
+            <div
+              id="progBar"
+              style="
+                width: 20%;
+                background: linear-gradient(90deg, #818cf8, #3b82f6);
+                height: 100%;
+                transition: width 0.3s;
+              "
+            ></div>
+          </div>
+
+          <div id="quiz-area">
+            <h2 style="color: #1f2937; margin-bottom: 20px" id="q-text">
+              1. Bagaimana perasaan Anda minggu ini?
+            </h2>
+            <div style="display: grid; gap: 10px">
+              <button
+                onclick="nextQ()"
+                class="todo-item"
+                style="justify-content: center; font-weight: 600; padding: 15px"
+              >
+                Saya tidak merasa sedih.
+              </button>
+              <button
+                onclick="nextQ()"
+                class="todo-item"
+                style="justify-content: center; font-weight: 600; padding: 15px"
+              >
+                Saya merasa sedih sesekali.
+              </button>
+              <button
+                onclick="nextQ()"
+                class="todo-item"
+                style="justify-content: center; font-weight: 600; padding: 15px"
+              >
+                Saya sedih sepanjang waktu.
+              </button>
+            </div>
+          </div>
+
+          <div id="result-area" style="display: none">
+            <div style="font-size: 4rem">📊</div>
+            <h2>Hasil Diagnosis</h2>
+            <div
+              style="
+                background: #fef3c7;
+                color: #d97706;
+                padding: 20px;
+                border-radius: 16px;
+                margin: 20px 0;
+              "
+            >
+              <h3>Tingkat: SEDANG</h3>
+              <p>Rekomendasi: Lakukan konsultasi ringan.</p>
+            </div>
+            <button
+              onclick="showPage('dashboard')"
+              class="sos-btn"
+              style="background: #3b82f6; color: white; border: none"
+            >
+              Kembali ke Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ADMIN -->
+      <div id="admin" class="page-section">
+        <header class="header">
+          <h1>Panel Monitoring Psikolog</h1>
+        </header>
+        <div class="card">
+          <table style="width: 100%; border-collapse: collapse">
+            <tr style="text-align: left; border-bottom: 2px solid #f3f4f6">
+              <th style="padding: 10px">Mahasiswa</th>
+              <th>Risiko</th>
+              <th>Aksi</th>
+            </tr>
+            <tr style="border-bottom: 1px solid #f3f4f6">
+              <td style="padding: 15px 10px; font-weight: bold">Budi S.</td>
+              <td>
+                <span
+                  style="
+                    background: #fef2f2;
+                    color: #dc2626;
+                    padding: 5px 10px;
+                    border-radius: 20px;
+                    font-size: 0.8rem;
+                    font-weight: 800;
+                  "
+                  >TINGGI</span
+                >
+              </td>
+              <td>
+                <button
+                  style="
+                    background: #3b82f6;
+                    color: white;
+                    border: none;
+                    padding: 5px 10px;
+                    border-radius: 6px;
+                    cursor: pointer;
+                  "
+                >
+                  Chat
+                </button>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 15px 10px; font-weight: bold">Siti A.</td>
+              <td>
+                <span
+                  style="
+                    background: #ecfdf5;
+                    color: #059669;
+                    padding: 5px 10px;
+                    border-radius: 20px;
+                    font-size: 0.8rem;
+                    font-weight: 800;
+                  "
+                  >AMAN</span
+                >
+              </td>
+              <td>
+                <button
+                  style="
+                    background: #e5e7eb;
+                    color: #374151;
+                    border: none;
+                    padding: 5px 10px;
+                    border-radius: 6px;
+                    cursor: pointer;
+                  "
+                >
+                  Log
+                </button>
+              </td>
+            </tr>
+          </table>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      // SPA Navigation
+      function showPage(id, el) {
+        document
+          .querySelectorAll(".page-section")
+          .forEach((p) => p.classList.remove("active"));
+        document.getElementById(id).classList.add("active");
+        if (el) {
+          document
+            .querySelectorAll(".nav-item")
+            .forEach((n) => n.classList.remove("active"));
+          el.classList.add("active");
+        }
+      }
+
+      // Checkbox Interaction
+      function toggleCheck(el) {
+        const box = el.querySelector(".checkbox");
+        box.classList.toggle("checked");
+        box.innerHTML = box.classList.contains("checked") ? "✔" : "";
+      }
+
+      // Quiz Logic Simulation
+      let qStep = 1;
+      function nextQ() {
+        qStep++;
+        document.getElementById("progBar").style.width = qStep * 50 + "%";
+        if (qStep > 2) {
+          document.getElementById("quiz-area").style.display = "none";
+          document.getElementById("result-area").style.display = "block";
+        } else {
+          document.getElementById("q-text").innerText =
+            "2. Apakah Anda merasa putus asa?";
+        }
+      }
+    </script>
+
+    <style>
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.7);
+        }
+        70% {
+          box-shadow: 0 0 0 10px rgba(52, 211, 153, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+        }
+      }
+    </style>
+  </body>
+</html>
